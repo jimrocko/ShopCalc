@@ -374,7 +374,7 @@ export function Chip({
   );
 }
 
-export function Badge({ tone = 'muted', children }: { tone?: 'muted' | 'warn' | 'danger' | 'accent'; children: ReactNode }) {
+export function Badge({ tone = 'muted', children }: { tone?: 'muted' | 'warn' | 'danger' | 'accent' | 'info'; children: ReactNode }) {
   return (
     <span
       className={cx(
@@ -383,6 +383,7 @@ export function Badge({ tone = 'muted', children }: { tone?: 'muted' | 'warn' | 
         tone === 'warn' && 'bg-warn/15 text-warn',
         tone === 'danger' && 'bg-danger/15 text-danger',
         tone === 'accent' && 'bg-accent/15 text-accent',
+        tone === 'info' && 'bg-sky-400/15 text-sky-300',
       )}
     >
       {children}

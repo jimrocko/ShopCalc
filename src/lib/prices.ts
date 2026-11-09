@@ -27,38 +27,112 @@ export function formatAge(recordedAt: number, now = Date.now()): string {
   return years <= 1 ? 'vor über 1 Jahr' : `vor ${years} Jahren`;
 }
 
-/** Neuester Preis je Markt (storeId null = „ohne Markt“). */
+/* ---------- Einordnung eines Preises ---------- */
+
+/**
+ * Eindeutige Einordnung eines Preises (Vorrang von oben nach unten):
+ * - estimated:  vom Nutzer als Schätzung markiert
+ * - online:     Onlinepreis (Shop im Internet)
+ * - old:        älter als die eingestellte Schwelle
+ * - manual:     selbst im Laden erfasst und aktuell
+ * - confirmed:  aktueller Filialpreis aus öffentlicher Quelle, belegt durch Preisschild/Kassenbon
+ * - unverified: aktueller Filialpreis aus öffentlicher Quelle ohne erkennbaren Beleg
+ */
+export type PriceKind = 'estimated' | 'online' | 'old' | 'manual' | 'confirmed' | 'unverified';
+
+export interface PriceDescription {
+  kind: PriceKind;
+  /** Kurzlabel für das Badge */
+  label: string;
+  tone: 'accent' | 'warn' | 'muted' | 'info';
+  /** Quelle in Worten, z. B. "Eigene Eingabe" oder "Open Prices · Preisschild" */
+  sourceLabel: string;
+  channelLabel: 'Filialpreis' | 'Onlinepreis';
+  stale: boolean;
+}
+
+const PROOF_LABEL: Record<string, string> = {
+  price_tag: 'Preisschild',
+  receipt: 'Kassenbon',
+  gdpr_request: 'Kaufhistorie',
+  shop_import: 'Händlerdaten',
+};
+
+export function describePrice(r: PriceRecord, staleAfterDays: number, now = Date.now()): PriceDescription {
+  const stale = isStale(r.recordedAt, staleAfterDays, now);
+  const sourceLabel =
+    r.source === 'manual'
+      ? 'Eigene Eingabe'
+      : `Open Prices${r.proof && PROOF_LABEL[r.proof] ? ` · ${PROOF_LABEL[r.proof]}` : ''}`;
+  const channelLabel = r.channel === 'online' ? 'Onlinepreis' : 'Filialpreis';
+  const base = { sourceLabel, channelLabel, stale } as const;
+  if (r.estimated) return { ...base, kind: 'estimated', label: 'Geschätzt', tone: 'muted' };
+  if (r.channel === 'online') return { ...base, kind: 'online', label: 'Onlinepreis', tone: 'info' };
+  if (stale) return { ...base, kind: 'old', label: 'Älterer Preis', tone: 'warn' };
+  if (r.source === 'manual') return { ...base, kind: 'manual', label: 'Manuell erfasst', tone: 'accent' };
+  if (r.proof && PROOF_LABEL[r.proof]) return { ...base, kind: 'confirmed', label: 'Aktuell bestätigt', tone: 'accent' };
+  return { ...base, kind: 'unverified', label: 'Ohne Beleg', tone: 'muted' };
+}
+
+/* ---------- Auswahl und Vergleich ---------- */
+
+/** Gruppierungsschlüssel: Quelle + Kanal + Markt bzw. Ort */
+export function priceGroupKey(r: PriceRecord): string {
+  return `${r.source}|${r.channel}|${r.storeId ?? r.locationLabel ?? ''}`;
+}
+
+/** Neuester Preis je Quelle und Markt. */
 export function latestPerStore(records: PriceRecord[]): PriceRecord[] {
   const map = new Map<string, PriceRecord>();
   for (const r of records) {
-    const key = r.storeId ?? '';
+    const key = priceGroupKey(r);
     const prev = map.get(key);
     if (!prev || r.recordedAt > prev.recordedAt) map.set(key, r);
   }
   return [...map.values()];
 }
 
-/** Neuester Preis insgesamt, bevorzugt im angegebenen Markt. */
+/**
+ * Bester bekannter EIGENER Preis zum Vorausfüllen: bevorzugt der aktuelle Markt,
+ * Schätzungen nur, wenn nichts anderes vorliegt. Externe Preise werden hier nie
+ * automatisch übernommen – sie werden nur in der Produktkarte angezeigt.
+ */
 export function bestKnownPrice(records: PriceRecord[], storeId: string | null): PriceRecord | null {
-  const latest = latestPerStore(records);
-  if (storeId) {
-    const inStore = latest.find((r) => r.storeId === storeId);
-    if (inStore) return inStore;
-  }
-  return latest.sort((a, b) => b.recordedAt - a.recordedAt)[0] ?? null;
+  const pick = (list: PriceRecord[]): PriceRecord | null => {
+    const ranked = latestPerStore(list).sort((a, b) => b.recordedAt - a.recordedAt);
+    return (storeId ? ranked.find((r) => r.storeId === storeId) : undefined) ?? ranked[0] ?? null;
+  };
+  const own = records.filter((r) => r.source === 'manual');
+  // Echte Preise haben immer Vorrang vor Schätzungen – auch wenn die Schätzung neuer ist
+  return pick(own.filter((r) => !r.estimated)) ?? pick(own.filter((r) => r.estimated));
 }
 
 export interface ComparisonRow {
+  key: string;
+  record: PriceRecord;
   storeId: string | null;
   storeName: string;
   priceCents: number;
   recordedAt: number;
   stale: boolean;
+  description: PriceDescription;
+}
+
+export function priceLocationName(r: PriceRecord, stores: Store[]): string {
+  if (r.storeId) {
+    const name = stores.find((s) => s.id === r.storeId)?.name;
+    if (name && r.source === 'manual') return name;
+    if (name && r.locationLabel) return r.locationLabel;
+    if (name) return name;
+  }
+  if (r.locationLabel) return r.locationLabel;
+  return r.source === 'manual' ? 'Ohne Markt' : 'Unbekannter Ort';
 }
 
 /**
- * Informationsvergleich: neuester gespeicherter Preis je Markt.
- * Bewusst nach Marktname sortiert (nicht nach Preis), um keine Empfehlung auszusprechen.
+ * Informationsvergleich: neuester Preis je Quelle und Markt.
+ * Eigene Preise zuerst (alphabetisch nach Markt), danach externe Preise (neueste zuerst).
+ * Bewusst NICHT nach Preis sortiert, um keine Empfehlung auszusprechen.
  * Da sich der Vergleich auf genau ein Produkt (gleicher Barcode bzw. gleiche Packungsgröße) bezieht,
  * werden nur vergleichbare Preise gegenübergestellt.
  */
@@ -68,14 +142,25 @@ export function buildComparison(
   staleAfterDays: number,
   now = Date.now(),
 ): ComparisonRow[] {
-  const names = new Map(stores.map((s) => [s.id, s.name]));
   return latestPerStore(records)
-    .map((r) => ({
-      storeId: r.storeId,
-      storeName: r.storeId ? names.get(r.storeId) ?? 'Unbekannter Markt' : 'Ohne Markt',
-      priceCents: r.priceCents,
-      recordedAt: r.recordedAt,
-      stale: isStale(r.recordedAt, staleAfterDays, now),
-    }))
-    .sort((a, b) => a.storeName.localeCompare(b.storeName, 'de'));
+    .map((r) => {
+      const description = describePrice(r, staleAfterDays, now);
+      return {
+        key: priceGroupKey(r),
+        record: r,
+        storeId: r.storeId,
+        storeName: priceLocationName(r, stores),
+        priceCents: r.priceCents,
+        recordedAt: r.recordedAt,
+        stale: description.stale,
+        description,
+      };
+    })
+    .sort((a, b) => {
+      const sa = a.record.source === 'manual' ? 0 : 1;
+      const sb = b.record.source === 'manual' ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      if (sa === 0) return a.storeName.localeCompare(b.storeName, 'de');
+      return b.recordedAt - a.recordedAt;
+    });
 }

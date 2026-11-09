@@ -50,7 +50,7 @@ export function ProductsView() {
       <div>
         <h1 className="font-display text-[30px] font-bold tracking-tight">Produkte & Preise</h1>
         <p className="mt-1 text-[13px] text-muted">
-          Lokal auf diesem Gerät gespeichert. Preise stammen ausschließlich aus deinen eigenen Eingaben.
+          Lokal auf diesem Gerät gespeichert. Preise stammen aus deinen eigenen Eingaben oder – gekennzeichnet – aus Open Prices.
         </p>
       </div>
 
@@ -79,16 +79,26 @@ export function ProductsView() {
         <ul className="overflow-hidden rounded-3xl border border-line/50 bg-card">
           {filtered.map((p, i) => {
             const latest = latestPerStore(byProduct.get(p.id) ?? []);
-            const newest = [...latest].sort((a, b) => b.recordedAt - a.recordedAt)[0];
+            // Eigene Preise haben Vorrang vor öffentlichen
+            const own = latest.filter((r) => r.source === 'manual');
+            const newest = [...(own.length ? own : latest)].sort((a, b) => b.recordedAt - a.recordedAt)[0];
             const stale = newest ? isStale(newest.recordedAt, state.settings.staleAfterDays) : false;
             return (
               <li key={p.id} className={i > 0 ? 'border-t border-line/50' : ''}>
                 <button type="button" className="tap flex w-full items-center gap-3 px-4 py-3 text-left active:bg-card2" onClick={() => setSelected(p.id)}>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white">
+                    {p.imageUrl ? (
+                      <img src={p.imageUrl} alt="" loading="lazy" className="h-full w-full object-contain" />
+                    ) : (
+                      <IconBox size={20} className="text-neutral-400" />
+                    )}
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[16px] font-medium">{p.name}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted">
                       <span className="truncate">{[p.brand, p.size].filter(Boolean).join(' · ') || (p.barcode ? `EAN ${p.barcode}` : 'Ohne Details')}</span>
-                      {latest.length > 1 && <Badge>{latest.length} Märkte</Badge>}
+                      {latest.length > 1 && <Badge>{latest.length} Preise</Badge>}
+                      {newest && newest.source !== 'manual' && <Badge tone="info">Open Prices</Badge>}
                       {stale && <Badge tone="warn">alt</Badge>}
                     </div>
                   </div>

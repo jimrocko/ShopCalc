@@ -3,6 +3,7 @@ import { BudgetCard } from '../components/BudgetCard';
 import { BudgetSheet } from '../components/BudgetSheet';
 import { ItemSheet, type ItemPrefill } from '../components/ItemSheet';
 import { ScannerSheet } from '../components/ScannerSheet';
+import { ProductCardSheet } from '../components/ProductCardSheet';
 import { CalculatorSheet } from '../components/CalculatorSheet';
 import { DepositSheet } from '../components/DepositSheet';
 import { ItemList } from '../components/ItemList';
@@ -12,23 +13,31 @@ import { IconBarcode, IconBottle, IconCalculator, IconEuro, IconStore, IconChevr
 import { Sheet, cx } from '../components/ui';
 import { StorePicker } from '../components/StorePicker';
 
-type Open = null | 'item' | 'scan' | 'calc' | 'deposit' | 'budget' | 'store';
+type Open = null | 'item' | 'scan' | 'card' | 'calc' | 'deposit' | 'budget' | 'store';
 
 export function ShopView() {
   const { state, dispatch, showToast, storeName } = useApp();
   const [open, setOpen] = useState<Open>(null);
   const [editItem, setEditItem] = useState<CartItem | null>(null);
   const [prefill, setPrefill] = useState<ItemPrefill | null>(null);
+  const [scanned, setScanned] = useState<string | null>(null);
 
   const close = useCallback(() => {
     setOpen(null);
     setEditItem(null);
     setPrefill(null);
+    setScanned(null);
   }, []);
 
-  const onScanResult = useCallback((p: ItemPrefill) => {
+  const onDetected = useCallback((code: string) => {
+    setScanned(code);
+    setOpen('card');
+  }, []);
+
+  const onMoreOptions = useCallback((p: ItemPrefill) => {
     setPrefill(p);
     setEditItem(null);
+    setScanned(null);
     setOpen('item');
   }, []);
 
@@ -109,12 +118,13 @@ export function ShopView() {
       <ScannerSheet
         open={open === 'scan'}
         onClose={close}
-        onResult={onScanResult}
+        onDetected={onDetected}
         onManual={() => {
           setPrefill(null);
           setOpen('item');
         }}
       />
+      <ProductCardSheet barcode={open === 'card' ? scanned : null} onClose={close} onMoreOptions={onMoreOptions} />
       <CalculatorSheet open={open === 'calc'} onClose={close} />
       <DepositSheet open={open === 'deposit'} onClose={close} />
       <BudgetSheet open={open === 'budget'} onClose={close} />

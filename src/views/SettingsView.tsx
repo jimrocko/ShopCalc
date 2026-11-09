@@ -85,10 +85,16 @@ export function SettingsView() {
           onChange={(v) => set({ rememberPrices: v })}
         />
         <Toggle
-          label="Open Food Facts verwenden"
-          description="Produktname/Marke zu unbekannten Barcodes online nachschlagen (kostenlos, keine Preise)."
+          label="Produktdatenbanken verwenden"
+          description="Name, Marke, Größe und Bild online nachschlagen: Open Food Facts, Open Beauty Facts, Open Pet Food Facts, Open Products Facts (kostenlos, enthalten keine Preise)."
           checked={settings.useOpenFoodFacts}
           onChange={(v) => set({ useOpenFoodFacts: v })}
+        />
+        <Toggle
+          label="Öffentliche Preise (Open Prices)"
+          description="Von anderen Nutzern belegte Preise für Lebensmittel abrufen. Für Kosmetik und andere Produkte gibt es keine freie Preisquelle."
+          checked={settings.useOpenPrices}
+          onChange={(v) => set({ useOpenPrices: v })}
         />
       </Card>
 
@@ -184,11 +190,14 @@ export function SettingsView() {
       <Card className="p-4 text-[13px] leading-relaxed text-muted">
         <p className="font-semibold text-white">Über ShopCalc</p>
         <p className="mt-1">
-          ShopCalc ist ein Einkaufsrechner – keine Einkaufsliste und keine Kaufempfehlung. Ein Barcode enthält keinen Preis:
-          Angezeigte Preise sind immer deine eigenen, mit Datum gespeicherten Eingaben und können veraltet sein.
+          ShopCalc ist ein Einkaufsrechner – keine Einkaufsliste und keine Kaufempfehlung. Ein Barcode enthält keinen Preis.
+          Angezeigte Preise sind entweder deine eigenen Eingaben oder öffentliche, von anderen Personen belegte Preise aus Open Prices –
+          immer mit Quelle, Ort und Datum. ShopCalc schätzt oder erfindet keine Preise; Preise können veraltet sein.
         </p>
         <p className="mt-2">
-          Produktdaten: <a className="text-accent underline" href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a> (ODbL).
+          Produktdaten: Open Food Facts, Open Beauty Facts, Open Pet Food Facts, Open Products Facts. Preise:{' '}
+          <a className="text-accent underline" href="https://prices.openfoodfacts.org" target="_blank" rel="noreferrer">Open Prices</a>.
+          Alle Daten unter Open Database License (ODbL).
           Barcode-Erkennung: ZXing (Apache-2.0).
         </p>
         <p className="mt-2">Installation auf dem iPhone: In Safari „Teilen“ › „Zum Home-Bildschirm“.</p>

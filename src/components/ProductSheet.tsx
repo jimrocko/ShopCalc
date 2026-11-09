@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Label, MoneyInput, Sheet, inputClass } from './ui';
+import { Button, Chip, Label, MoneyInput, Sheet, inputClass } from './ui';
 import { StorePicker } from './StorePicker';
 import { useApp } from '../state/AppContext';
 import { deletePrice, deleteProduct, getProduct, listPrices, recordPrice, upsertProduct } from '../db/repo';
-import { buildComparison, formatAge, formatDate } from '../lib/prices';
+import { buildComparison, formatDate } from '../lib/prices';
+import { PriceRow } from './PriceRow';
+import { FACTS_SOURCE_LABEL } from '../api/openFacts';
+import { openPricesApplies } from '../api/openPrices';
+import { refreshExternalPrices, resolveProduct } from '../services/scanLookup';
+import { useOnline } from '../state/useOnline';
 import { formatCents } from '../lib/money';
 import type { PriceRecord, Product } from '../lib/types';
 import { IconTrash } from './icons';
@@ -17,6 +22,9 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
   const [newPrice, setNewPrice] = useState<number | null>(null);
   const [newStore, setNewStore] = useState<string | null>(state.settings.currentStoreId);
   const [showHistory, setShowHistory] = useState(false);
+  const [estimated, setEstimated] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const online = useOnline();
 
   const load = useCallback(async () => {
     if (!productId) return;
@@ -48,13 +56,36 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
 
   const addPrice = async () => {
     if (!product || newPrice === null) return;
-    await recordPrice(product.id, newStore, newPrice);
+    await recordPrice(product.id, newStore, newPrice, Date.now(), { estimated });
     setNewPrice(null);
+    setEstimated(false);
     bumpProducts();
     showToast('Preis gespeichert');
   };
 
-  const addToCart = (row: { storeId: string | null; priceCents: number }) => {
+  const refreshOnline = async () => {
+    if (!product?.barcode) return;
+    setRefreshing(true);
+    try {
+      const res = await resolveProduct(product.barcode, { useFacts: state.settings.useOpenFoodFacts, force: true });
+      const target = res.product ?? product;
+      const pr = await refreshExternalPrices(target, { useOpenPrices: state.settings.useOpenPrices, stores });
+      bumpProducts();
+      showToast(
+        pr.status === 'ok'
+          ? `${pr.found} öffentliche Preise gefunden`
+          : pr.status === 'skipped-not-food'
+            ? 'Produktdaten aktualisiert (keine freie Preisquelle für diese Produktart)'
+            : res.status === 'found'
+              ? 'Produktdaten aktualisiert'
+              : 'Keine neuen Daten gefunden',
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const addToCart = (row: { priceCents: number }) => {
     if (!product) return;
     dispatch({
       type: 'addItem',
@@ -63,7 +94,7 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
         unitPriceCents: row.priceCents,
         quantity: 1,
         depositCents: 0,
-        storeId: row.storeId,
+        storeId: state.settings.currentStoreId,
         productId: product.id,
         barcode: product.barcode,
       },
@@ -86,6 +117,11 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
         <p className="text-muted">Produkt nicht gefunden.</p>
       ) : (
         <>
+          {product.imageUrl && (
+            <div className="mb-4 flex h-32 items-center justify-center overflow-hidden rounded-2xl bg-white">
+              <img src={product.imageUrl} alt={product.name} className="h-full object-contain" />
+            </div>
+          )}
           {!editing ? (
             <div className="rounded-2xl bg-card2 p-4">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[14px]">
@@ -96,7 +132,7 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
               </dl>
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-[12px] text-muted">
-                  {product.source === 'openfoodfacts' ? 'Stammdaten: Open Food Facts' : 'Selbst erfasst'}
+                  {product.source === 'user' ? 'Selbst erfasst' : `Stammdaten: ${FACTS_SOURCE_LABEL[product.source]}`}
                 </span>
                 <Button size="sm" onClick={() => setEditing(true)}>
                   Bearbeiten
@@ -129,29 +165,35 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
 
           <h3 className="mb-2 mt-6 font-display text-[18px] font-bold">Preisvergleich</h3>
           <p className="mb-3 text-[12.5px] text-muted">
-            Deine selbst erfassten Preise für {product.size ? `genau diese Packungsgröße (${product.size})` : 'genau dieses Produkt'} – reine
+            Preise für {product.size ? `genau diese Packungsgröße (${product.size})` : 'genau dieses Produkt'} mit Quelle und Datum – reine
             Information, keine Empfehlung.
           </p>
           {comparison.length === 0 ? (
             <p className="rounded-2xl bg-card2 px-4 py-3 text-[14px] text-muted">Noch kein Preis gespeichert.</p>
           ) : (
-            <ul className="divide-y divide-line/60 overflow-hidden rounded-2xl bg-card2">
+            <div className="divide-y divide-line/60 overflow-hidden rounded-2xl bg-card2">
               {comparison.map((row) => (
-                <li key={row.storeId ?? 'none'} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[15px] font-medium">{row.storeName}</div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-                      {formatDate(row.recordedAt)} · {formatAge(row.recordedAt)}
-                      {row.stale && <Badge tone="warn">möglicherweise veraltet</Badge>}
-                    </div>
-                  </div>
-                  <div className="text-[18px] font-semibold tabular-nums">{formatCents(row.priceCents)}</div>
-                  <Button size="sm" variant="ghost" onClick={() => addToCart(row)} aria-label={`Mit Preis von ${row.storeName} zum Einkauf hinzufügen`}>
-                    + Einkauf
-                  </Button>
-                </li>
+                <PriceRow
+                  key={row.key}
+                  row={row}
+                  action={
+                    <Button size="sm" variant="ghost" onClick={() => addToCart(row)} aria-label={`Mit Preis von ${row.storeName} zum Einkauf hinzufügen`}>
+                      +
+                    </Button>
+                  }
+                />
               ))}
-            </ul>
+            </div>
+          )}
+
+          {product.barcode && (
+            <Button className="mt-3 w-full" disabled={!online || refreshing} onClick={() => void refreshOnline()}>
+              {refreshing
+                ? 'Aktualisiere …'
+                : openPricesApplies(product.productType) || !product.productType
+                  ? 'Produktdaten & öffentliche Preise aktualisieren'
+                  : 'Produktdaten online aktualisieren'}
+            </Button>
           )}
 
           <div className="mt-5 rounded-2xl border border-line/60 p-4">
@@ -159,6 +201,11 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
             <MoneyInput valueCents={newPrice} onChange={setNewPrice} onEnter={() => void addPrice()} />
             <div className="mt-3">
               <StorePicker value={newStore} onChange={setNewStore} />
+            </div>
+            <div className="mt-3">
+              <Chip active={estimated} onClick={() => setEstimated((v) => !v)}>
+                {estimated ? '✓ ' : ''}Nur geschätzt
+              </Chip>
             </div>
             <Button variant="primary" className="mt-3 w-full" disabled={newPrice === null} onClick={() => void addPrice()}>
               Preis speichern{newStore ? ` (${storeName(newStore)})` : ''}
@@ -175,8 +222,10 @@ export function ProductSheet({ productId, onClose }: { productId: string | null;
                   {prices.map((p) => (
                     <li key={p.id} className="flex items-center gap-3 px-4 py-2.5 text-[14px]">
                       <span className="flex-1">
-                        {p.storeId ? storeName(p.storeId) : 'Ohne Markt'}
-                        <span className="ml-2 text-muted">{formatDate(p.recordedAt)}</span>
+                        {p.source === 'manual' ? (p.storeId ? storeName(p.storeId) : 'Ohne Markt') : p.locationLabel ?? 'Open Prices'}
+                        <span className="ml-2 text-muted">
+                          {formatDate(p.recordedAt)} · {p.source === 'manual' ? (p.estimated ? 'geschätzt' : 'eigene Eingabe') : 'Open Prices'}
+                        </span>
                       </span>
                       <span className="tabular-nums">{formatCents(p.priceCents)}</span>
                       <button
