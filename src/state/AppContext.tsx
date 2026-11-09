@@ -48,6 +48,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const [session, settings] = await Promise.all([repo.loadSession(), repo.loadSettings()]);
+        // Doppelte Produkte (gleiche GTIN/EAN) zusammenführen – z. B. nach Importen
+        await repo.mergeDuplicateProducts().catch((e) => console.error(e));
         await reloadStores();
         if (!cancelled) dispatch({ type: 'loaded', session, settings });
         void requestPersistence();

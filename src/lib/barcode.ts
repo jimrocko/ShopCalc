@@ -10,10 +10,15 @@ export function isValidGtin(code: string): boolean {
   return (10 - (sum % 10)) % 10 === check;
 }
 
-/** Normalisiert UPC-A (12-stellig) auf EAN-13. */
+/**
+ * Normalisiert eine GTIN, damit dasselbe Produkt immer denselben Schlüssel hat:
+ * UPC-A (12-stellig) → EAN-13, GTIN-14 mit führender 0 → EAN-13.
+ */
 export function normalizeBarcode(code: string): string {
   const c = code.replace(/\D/g, '');
-  return c.length === 12 ? `0${c}` : c;
+  if (c.length === 12) return `0${c}`;
+  if (c.length === 14 && c.startsWith('0')) return c.slice(1);
+  return c;
 }
 
 export function isSupportedBarcode(code: string): boolean {

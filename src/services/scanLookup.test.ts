@@ -27,18 +27,19 @@ describe('Scan: Lebensmittel', () => {
     expect(res.product!.imageUrl).toContain('images.openfoodfacts.org');
 
     const pr = await refreshExternalPrices(res.product!, { useOpenPrices: true, stores: DEFAULT_STORES, fetchImpl: impl });
-    expect(pr).toEqual({ status: 'ok', found: 3 });
+    expect(pr).toEqual({ status: 'ok', found: 4 });
     expect(calls).toHaveLength(2);
 
     const prices = await loadPrices(res.product);
     expect(prices.every((p) => p.source === 'openprices' && p.recordedAt > 0)).toBe(true);
-    // Vorschlag: belegter, aktueller Filialpreis aus Deutschland (Lidl 0,99 €) – nicht online, nicht Ausland
-    const s = suggestPrice(prices, null, 30, NOW);
-    expect(s).toMatchObject({ priceCents: 99, storeId: 'lidl', proof: 'price_tag' });
+    // Vorschlag ohne gewählten Händler: neuester belegter Filialpreis aus Deutschland (REWE 1,19 €) – nicht online, nicht Ausland
+    expect(suggestPrice(prices, null, 30, NOW)).toMatchObject({ priceCents: 119, storeId: 'rewe', proof: 'price_tag' });
+    // Mit gewähltem Händler Lidl: dessen Filialpreis
+    expect(suggestPrice(prices, 'lidl', 30, NOW)).toMatchObject({ priceCents: 99, storeId: 'lidl' });
 
     // Erneuter Abruf erzeugt keine Duplikate
     await refreshExternalPrices(res.product!, { useOpenPrices: true, stores: DEFAULT_STORES, fetchImpl: impl });
-    expect(await loadPrices(res.product)).toHaveLength(3);
+    expect(await loadPrices(res.product)).toHaveLength(4);
   });
 
   it('eigene Preise haben Vorrang (1. lokal)', async () => {
@@ -97,7 +98,12 @@ describe('Scan: unbekannter Barcode', () => {
   it('kein Produkt → manuelle Eingabe legt Produkt an', async () => {
     const { impl } = mockFetch({ 'api/v3/product/2000000000008': { body: EMPTY_PRODUCT } });
     const res = await resolveProduct('2000000000008', { useFacts: true, fetchImpl: impl });
-    expect(res).toEqual({ product: null, status: 'not-found' });
+    expect(res).toMatchObject({ product: null, status: 'not-found' });
+    expect(res.reports.map((r) => [r.id, r.status])).toEqual([
+      ['local-product', 'empty'],
+      ['openfacts', 'empty'],
+      ['openprices-product', 'empty'],
+    ]);
     const pid = await saveManualPrice({ barcode: '2000000000008', product: null, name: 'Deo Spray', storeId: 'aldi', priceCents: 195, estimated: true });
     const p = (await repo.findProductByBarcode('2000000000008'))!;
     expect(p.id).toBe(pid);

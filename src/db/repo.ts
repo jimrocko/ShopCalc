@@ -147,6 +147,43 @@ export async function upsertProduct(
   return product;
 }
 
+/**
+ * Erkennt doppelte Produkte anhand der (normalisierten) GTIN/EAN und führt sie zusammen:
+ * Das älteste Produkt bleibt erhalten, leere Angaben werden aus den Duplikaten ergänzt,
+ * alle Preise werden umgehängt. Gibt die Anzahl entfernter Duplikate zurück.
+ */
+export async function mergeDuplicateProducts(): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction(['products', 'prices'], 'readwrite');
+  const products = (await tx.objectStore('products').getAll()).map(normalizeProduct);
+  const groups = new Map<string, Product[]>();
+  for (const p of products) {
+    if (!p.barcode) continue;
+    const key = normalizeBarcode(p.barcode);
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  let removed = 0;
+  for (const [barcode, group] of groups) {
+    const raw = await tx.objectStore('products').get(group[0].id);
+    const needsNormalize = raw && raw.barcode !== barcode;
+    if (group.length < 2 && !needsNormalize) continue;
+    const [keep, ...dupes] = [...group].sort((a, b) => a.createdAt - b.createdAt);
+    const merged: Product = { ...keep, barcode };
+    for (const d of dupes) {
+      for (const f of ['name', 'brand', 'category', 'size'] as const) if (!merged[f]) merged[f] = d[f];
+      merged.imageUrl = merged.imageUrl ?? d.imageUrl;
+      merged.productType = merged.productType ?? d.productType;
+      const priceKeys = await tx.objectStore('prices').index('productId').getAll(d.id);
+      for (const pr of priceKeys) await tx.objectStore('prices').put({ ...pr, productId: keep.id });
+      await tx.objectStore('products').delete(d.id);
+      removed++;
+    }
+    await tx.objectStore('products').put(merged);
+  }
+  await tx.done;
+  return removed;
+}
+
 export async function deleteProduct(id: string): Promise<void> {
   const db = await getDB();
   const tx = db.transaction(['products', 'prices'], 'readwrite');
@@ -283,6 +320,7 @@ export async function importAll(data: unknown): Promise<{ products: number; pric
   for (const p of prices) await tx.objectStore('prices').put(normalizePrice(p));
   for (const s of stores) await tx.objectStore('stores').put({ ...s, builtIn: s.builtIn ?? false, createdAt: s.createdAt ?? Date.now() });
   await tx.done;
+  await mergeDuplicateProducts();
   return { products: products.length, prices: prices.length, stores: stores.length };
 }
 

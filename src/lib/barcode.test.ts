@@ -15,6 +15,9 @@ describe('Barcode', () => {
     expect(normalizeBarcode('036000291452')).toBe('0036000291452');
     expect(isSupportedBarcode('036000291452')).toBe(true);
   });
+  it('GTIN-14 mit führender 0 wird zu EAN-13', () => {
+    expect(normalizeBarcode('04000417025005')).toBe('4000417025005');
+  });
   it('lehnt anderes ab', () => {
     expect(isSupportedBarcode('123')).toBe(false);
     expect(isSupportedBarcode('abcdefgh')).toBe(false);

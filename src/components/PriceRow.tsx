@@ -35,7 +35,8 @@ export function PriceRow({
       <span className="min-w-0 flex-1">
         <span className="block break-words text-[15px] font-medium leading-snug">{row.storeName}</span>
         <span className="mt-0.5 block text-[12px] text-muted">
-          {formatDate(record.recordedAt)} · {formatAge(record.recordedAt)}
+          Erfasst {formatDate(record.recordedAt)} · {formatAge(record.recordedAt)}
+          {record.source !== 'manual' && record.fetchedAt ? ` · abgerufen ${formatAge(record.fetchedAt)}` : ''}
         </span>
         <span className="mt-1.5 flex flex-wrap gap-1">
           <Badge tone={d.tone === 'info' ? 'info' : d.tone}>{d.label}</Badge>
