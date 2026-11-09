@@ -58,20 +58,45 @@ const renderCard = (code: string) =>
   );
 
 describe('Produktkarte', () => {
+  it('Gewählter Händler REWE: Zusammenfassung, REWE-Preis zuerst, Datenquellen inkl. REWE/EDEKA-Status', async () => {
+    await (await import('../db/repo')).saveSettings({ ...(await (await import('../db/repo')).loadSettings()), currentStoreId: 'rewe' });
+    renderCard('5449000000996');
+    const summary = await screen.findByTestId('retailer-summary');
+    expect(summary.textContent).toMatch(/Bei REWE: 2 Preise gefunden/);
+    const radios = screen.getAllByRole('radio');
+    expect(radios[0].textContent).toMatch(/REWE City, Berlin/);
+    await waitFor(() => expect(screen.getAllByRole('radio')[0].getAttribute('aria-checked')).toBe('true'));
+    expect(radios[1].textContent).toMatch(/rewe\.de.*Onlinepreis/);
+    expect(radios[1].getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByRole('button', { name: /Zum Einkauf hinzufügen · 1,19/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Datenquellen anzeigen/ }));
+    const list = screen.getByTestId('source-list').textContent!;
+    expect(list).toMatch(/Open Prices · gefunden/);
+    expect(list).toMatch(/REWE-Schnittstelle · nicht verfügbar/);
+    expect(list).toMatch(/EDEKA-Schnittstelle · nicht verfügbar/);
+    expect(calls.some((c) => /rewe\.de|edeka\.de/.test(c))).toBe(false);
+  });
+
+  it('Gewählter Händler ohne Preis: ehrlicher Hinweis', async () => {
+    await (await import('../db/repo')).saveSettings({ ...(await (await import('../db/repo')).loadSettings()), currentStoreId: 'edeka' });
+    renderCard('5449000000996');
+    expect((await screen.findByTestId('retailer-summary')).textContent).toMatch(/Bei EDEKA ist noch kein Preis bekannt/);
+  });
+
   it('Lebensmittel: zeigt Bild, Name, Größe und Open-Prices-Preise; „Zum Einkauf hinzufügen“', async () => {
     renderCard('5449000000996');
     expect((await screen.findByTestId('product-name')).textContent).toBe('Coca-Cola');
     expect(screen.getByText(/330 ml/)).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Coca-Cola' })).toBeTruthy();
-    const add = await screen.findByRole('button', { name: /Zum Einkauf hinzufügen · 0,99/ });
+    const add = await screen.findByRole('button', { name: /Zum Einkauf hinzufügen · 1,19/ });
     // Kennzeichnung von Quelle, Kanal und Art
     expect(screen.getByText('Lidl, Berlin')).toBeTruthy();
     expect(screen.getAllByText('Aktuell bestätigt').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Onlinepreis').length).toBeGreaterThan(0);
-    expect(screen.getByText('Open Prices · Preisschild')).toBeTruthy();
+    expect(screen.getAllByText('Open Prices · Preisschild').length).toBeGreaterThan(0);
     expect(screen.getByText('rewe.de')).toBeTruthy();
     fireEvent.click(add);
-    expect(screen.getByTestId('items').textContent).toBe('Coca-Cola:99');
+    expect(screen.getByTestId('items').textContent).toBe('Coca-Cola:119');
     // Fremdpreis wird NICHT als eigener Preis gespeichert
     const p = (await repo.findProductByBarcode('5449000000996'))!;
     expect((await repo.listPrices(p.id)).every((r) => r.source === 'openprices')).toBe(true);

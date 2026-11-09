@@ -11,13 +11,14 @@ import { FACTS_SOURCE_LABEL } from '../api/openFacts';
 import {
   externalFetchedAt,
   loadPrices,
-  refreshExternalPrices,
+  lookupPrices,
   resolveProduct,
   saveManualPrice,
   suggestPrice,
-  type PriceLookupStatus,
   type ProductLookupStatus,
 } from '../services/scanLookup';
+import type { SourceReport } from '../sources/types';
+import { SourceList } from './SourceList';
 import type { ItemPrefill } from './ItemSheet';
 import { IconBox } from './icons';
 
@@ -41,7 +42,9 @@ export function ProductCardSheet({
   const [product, setProduct] = useState<Product | null>(null);
   const [productStatus, setProductStatus] = useState<ProductLookupStatus | 'loading'>('loading');
   const [prices, setPrices] = useState<PriceRecord[]>([]);
-  const [priceStatus, setPriceStatus] = useState<PriceLookupStatus | 'loading' | 'idle'>('idle');
+  const [priceStatus, setPriceStatus] = useState<'loading' | 'idle' | 'done'>('idle');
+  const [reports, setReports] = useState<SourceReport[]>([]);
+  const [showAll, setShowAll] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
 
@@ -54,8 +57,8 @@ export function ProductCardSheet({
   const userSelected = useRef(false);
 
   const comparison = useMemo(
-    () => buildComparison(prices, stores, settings.staleAfterDays),
-    [prices, stores, settings.staleAfterDays],
+    () => buildComparison(prices, stores, settings.staleAfterDays, Date.now(), settings.currentStoreId),
+    [prices, stores, settings.staleAfterDays, settings.currentStoreId],
   );
 
   const run = useCallback(
@@ -74,18 +77,27 @@ export function ProductCardSheet({
       if (cancelled()) return;
       setProduct(res.product);
       setProductStatus(res.status);
+      setReports(res.reports);
       if (res.status === 'found') bumpProducts();
       if (!res.product) return;
       setPrices(await loadPrices(res.product));
-      // 3. Öffentliche Preise (nur Lebensmittel)
+      // 3. Preisquellen (unabhängig voneinander)
       setPriceStatus('loading');
-      const pr = await refreshExternalPrices(res.product, { useOpenPrices: settings.useOpenPrices, stores });
+      const priceReports = await lookupPrices(res.product, {
+        useOpenPrices: settings.useOpenPrices,
+        stores,
+        currentStoreId: settings.currentStoreId,
+      });
       if (cancelled()) return;
-      setPriceStatus(pr.status);
-      if (pr.found > 0) bumpProducts();
-      setPrices(await loadPrices(res.product));
+      // Erst Preise laden, dann Status setzen – so erscheinen Zusammenfassung und Liste gemeinsam
+      const loaded = await loadPrices(res.product);
+      if (cancelled()) return;
+      setPrices(loaded);
+      setReports([...res.reports, ...priceReports]);
+      setPriceStatus('done');
+      if (priceReports.some((r) => r.id === 'openprices' && r.count > 0)) bumpProducts();
     },
-    [settings.useOpenFoodFacts, settings.useOpenPrices, stores, bumpProducts],
+    [settings.useOpenFoodFacts, settings.useOpenPrices, settings.currentStoreId, stores, bumpProducts],
   );
 
   useEffect(() => {
@@ -93,6 +105,8 @@ export function ProductCardSheet({
     let cancelled = false;
     setProduct(null);
     setPrices([]);
+    setReports([]);
+    setShowAll(false);
     setSelectedKey(null);
     setManualOpen(false);
     setPrice(null);
@@ -118,6 +132,13 @@ export function ProductCardSheet({
   }, [prices, comparison, settings.currentStoreId, settings.staleAfterDays]);
 
   const selected = comparison.find((r) => r.key === selectedKey) ?? null;
+  const currentRetailer = storeName(settings.currentStoreId);
+  const retailerRows = settings.currentStoreId ? comparison.filter((r) => r.storeId === settings.currentStoreId) : [];
+  const LIMIT = 6;
+  const baseVisible = showAll ? comparison : comparison.slice(0, Math.max(LIMIT, retailerRows.length));
+  // Ausgewählte Zeile immer sichtbar halten
+  const visibleRows = selected && !baseVisible.includes(selected) ? [...baseVisible, selected] : baseVisible;
+  const hiddenCount = comparison.length - visibleRows.length;
   const loadingProduct = productStatus === 'loading' && !product;
   const unknown = !loadingProduct && !product;
   const displayName = product?.name || 'Unbekanntes Produkt';
@@ -253,12 +274,27 @@ export function ProductCardSheet({
         <section className="mt-6" aria-label="Gefundene Preise">
           <div className="mb-2 flex items-baseline justify-between">
             <h3 className="font-display text-[18px] font-bold">Preise</h3>
-            {priceStatus === 'loading' && <span className="text-[12px] text-muted">Suche bei Open Prices …</span>}
+            {priceStatus === 'loading' && <span className="text-[12px] text-muted">Suche Preise …</span>}
           </div>
+
+          {currentRetailer && priceStatus !== 'loading' && (
+            <p className="mb-2 rounded-2xl bg-card2 px-4 py-2.5 text-[14px]" data-testid="retailer-summary">
+              {retailerRows.length > 0 ? (
+                <>
+                  Bei <strong>{currentRetailer}</strong>: {retailerRows.length} Preis{retailerRows.length === 1 ? '' : 'e'} gefunden
+                </>
+              ) : (
+                <>
+                  Bei <strong>{currentRetailer}</strong> ist noch kein Preis bekannt
+                  {comparison.length > 0 ? ' – Preise anderer Märkte zum Vergleich:' : '.'}
+                </>
+              )}
+            </p>
+          )}
 
           {comparison.length > 0 ? (
             <div role="radiogroup" aria-label="Preis auswählen" className="divide-y divide-line/60 overflow-hidden rounded-2xl bg-card2">
-              {comparison.map((row) => (
+              {visibleRows.map((row) => (
                 <PriceRow
                   key={row.key}
                   row={row}
@@ -278,8 +314,14 @@ export function ProductCardSheet({
               </p>
             )
           )}
+          {hiddenCount > 0 && (
+            <button type="button" className="tap mt-2 text-[14px] font-semibold text-accent" onClick={() => setShowAll(true)}>
+              {hiddenCount} weitere Preise anzeigen
+            </button>
+          )}
 
-          <PriceSourceNote status={priceStatus} productType={product?.productType ?? null} online={online} fetchedAt={fetchedAt} />
+          <PriceSourceNote reports={reports} productType={product?.productType ?? null} online={online} fetchedAt={fetchedAt} />
+          {reports.length > 0 && priceStatus === 'done' && <SourceList reports={reports} />}
           {comparison.length > 0 && !selected && !manualOpen && (
             <p className="mt-2 text-[12.5px] text-muted">
               Tippe einen Preis an, um ihn zu übernehmen. Ältere, geschätzte und Onlinepreise werden nicht automatisch gewählt.
@@ -354,8 +396,10 @@ export function ProductCardSheet({
           <button type="button" className="tap mt-1 self-center text-[14px] font-semibold text-accent" onClick={moreOptions}>
             Menge, Pfand oder Markt anpassen …
           </button>
-          {storeName(settings.currentStoreId) && (
-            <p className="text-center text-[12px] text-muted">Wird dem aktuellen Markt {storeName(settings.currentStoreId)} zugeordnet.</p>
+          {currentRetailer ? (
+            <p className="text-center text-[12px] text-muted">Wird dem aktuellen Händler {currentRetailer} zugeordnet.</p>
+          ) : (
+            <p className="text-center text-[12px] text-muted">Tipp: Wähle oben auf der Startseite deinen Händler, um dessen Preise zuerst zu sehen.</p>
           )}
         </div>
       )}
@@ -364,32 +408,31 @@ export function ProductCardSheet({
 }
 
 function PriceSourceNote({
-  status,
+  reports,
   productType,
   online,
   fetchedAt,
 }: {
-  status: PriceLookupStatus | 'loading' | 'idle';
+  reports: SourceReport[];
   productType: Product['productType'];
   online: boolean;
   fetchedAt: number | null;
 }) {
+  const op = reports.find((r) => r.id === 'openprices');
   let text: string | null = null;
-  if (status === 'skipped-not-food') {
+  if (op?.status === 'skipped') {
     text =
       productType === 'beauty'
         ? 'Für Kosmetik und Körperpflege gibt es keine freie Preisdatenbank. Gezeigt werden nur deine eigenen Preise.'
         : 'Für diese Produktart gibt es keine freie Preisdatenbank. Gezeigt werden nur deine eigenen Preise.';
-  } else if (status === 'offline' || (!online && status !== 'loading')) {
+  } else if (op?.status === 'offline' || (!online && op)) {
     text = fetchedAt
       ? `Offline – öffentliche Preise vom Stand ${formatDate(fetchedAt)}.`
       : 'Offline – öffentliche Preise können gerade nicht abgerufen werden.';
-  } else if (status === 'error') {
+  } else if (op?.status === 'error') {
     text = 'Open Prices ist gerade nicht erreichbar. Gezeigt werden gespeicherte Preise.';
-  } else if (status === 'ok') {
+  } else if (op?.status === 'ok') {
     text = 'Öffentliche Preise: Open Prices (Open Food Facts, ODbL) – von Nutzern mit Preisschild oder Kassenbon erfasst.';
-  } else if (status === 'disabled') {
-    text = 'Abfrage öffentlicher Preise ist in den Einstellungen deaktiviert.';
   }
   return text ? <p className="mt-2 text-[12px] text-muted">{text}</p> : null;
 }

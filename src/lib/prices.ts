@@ -76,9 +76,10 @@ export function describePrice(r: PriceRecord, staleAfterDays: number, now = Date
 
 /* ---------- Auswahl und Vergleich ---------- */
 
-/** Gruppierungsschlüssel: Quelle + Kanal + Markt bzw. Ort */
+/** Gruppierungsschlüssel: eigene Preise je Händler, externe Preise je konkretem Markt bzw. Onlineshop */
 export function priceGroupKey(r: PriceRecord): string {
-  return `${r.source}|${r.channel}|${r.storeId ?? r.locationLabel ?? ''}`;
+  if (r.source === 'manual') return `manual|${r.channel}|${r.storeId ?? ''}`;
+  return `${r.source}|${r.channel}|${r.marketId ?? r.locationLabel ?? r.storeId ?? ''}`;
 }
 
 /** Neuester Preis je Quelle und Markt. */
@@ -141,6 +142,8 @@ export function buildComparison(
   stores: Store[],
   staleAfterDays: number,
   now = Date.now(),
+  /** Preise dieses Händlers zuerst (der Markt, in dem gerade eingekauft wird) */
+  preferStoreId: string | null = null,
 ): ComparisonRow[] {
   return latestPerStore(records)
     .map((r) => {
@@ -157,10 +160,17 @@ export function buildComparison(
       };
     })
     .sort((a, b) => {
+      const pa = preferStoreId && a.storeId === preferStoreId ? 0 : 1;
+      const pb = preferStoreId && b.storeId === preferStoreId ? 0 : 1;
+      if (pa !== pb) return pa - pb;
       const sa = a.record.source === 'manual' ? 0 : 1;
       const sb = b.record.source === 'manual' ? 0 : 1;
       if (sa !== sb) return sa - sb;
       if (sa === 0) return a.storeName.localeCompare(b.storeName, 'de');
+      // Externe: Filialpreise aus Deutschland vor Ausland/online, dann neueste zuerst
+      const da = a.record.countryCode === 'DE' && a.record.channel === 'store' ? 0 : 1;
+      const db = b.record.countryCode === 'DE' && b.record.channel === 'store' ? 0 : 1;
+      if (da !== db) return da - db;
       return b.recordedAt - a.recordedAt;
     });
 }

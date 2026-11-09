@@ -32,7 +32,8 @@ src/
   lib/        Reine Logik: Cent-Arithmetik, Summen/Budget, Taschenrechner, Preise, Barcode
   db/         IndexedDB-Schema und Repository (Produkte, Preise, Märkte, Einstellungen, Sitzung)
   api/        Open-*-Facts-Produktabfrage (product_type=all), Open Prices
-  services/   Ablauf nach dem Scan (lokal → Produktdatenbanken → Open Prices)
+  sources/    Einzelne Produkt- und Preisquellen mit Statusbericht (lokal, Open-*-Facts, Open Prices, REWE/EDEKA-Status)
+  services/   Ablauf nach dem Scan (Produkt erkennen → Preise suchen → Vorschlag)
   scanner/    Kamera + Barcode-Erkennung
   state/      App-Zustand (Reducer + Context), Online-Status
   components/ UI-Bausteine und Bottom-Sheets
@@ -81,6 +82,11 @@ Hinweis zu iOS: Safari kann Website-Daten löschen, wenn eine Website mehrere Wo
 Icons und iOS-Startbildschirme liegen in `public/`. Bei Designänderungen an `public/favicon.svg` neu erzeugen mit `npm run icons` (benötigt Playwright/Chromium lokal).
 
 ## Datenquellen und Rechtliches
+
+Ausführliche Prüfung aller Quellen (inkl. REWE und EDEKA): [docs/DATENQUELLEN.md](docs/DATENQUELLEN.md)
+
+- **REWE und EDEKA bieten keine offizielle, kostenlose Schnittstelle.** Ihre internen App-/Shop-Endpunkte sind gegen fremde Nutzung geschützt; sie werden nicht verwendet. Preise dieser Händler kommen aus Open Prices (von Nutzern belegt) und aus eigenen Eingaben.
+- Jede Quelle ist separat umgesetzt (`src/sources/`); der Ausfall einer Quelle blockiert die anderen nicht. Die Produktkarte zeigt unter „Datenquellen“, welche Quelle was geliefert hat.
 
 - **Keine Shop-Scraper.** Supermarkt-Websites werden nicht ausgelesen; es gibt keine kostenlose, rechtlich saubere API mit aktuellen Supermarktpreisen in Deutschland.
 - **Preise anderer Nutzer** stammen ausschließlich aus Open Prices, einer offenen Gemeinschaftsdatenbank, in die Menschen Preise mit Foto-Beleg eintragen. Eine eigene ShopCalc-Cloud zum Teilen von Preisen gibt es nicht – sie wäre nicht dauerhaft kostenlos zu betreiben.

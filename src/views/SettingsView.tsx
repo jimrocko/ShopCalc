@@ -5,6 +5,7 @@ import { formatCents } from '../lib/money';
 import { addStore, clearProductDatabase, deleteStore, exportAll, importAll, renameStore } from '../db/repo';
 import { IconTrash } from '../components/icons';
 import type { Settings } from '../lib/types';
+import { RETAILER_APIS } from '../sources/retailerApis';
 
 export function SettingsView() {
   const { state, dispatch, stores, reloadStores, bumpProducts, showToast, storageError } = useApp();
@@ -96,6 +97,31 @@ export function SettingsView() {
           checked={settings.useOpenPrices}
           onChange={(v) => set({ useOpenPrices: v })}
         />
+      </Card>
+
+      <Card className="p-4 text-[13px] leading-relaxed">
+        <Label>Datenquellen</Label>
+        <ul className="divide-y divide-line/50" data-testid="sources-info">
+          <SourceInfo ok title="ShopCalc (lokal)" text="Deine Produkte und Preise auf diesem Gerät – immer zuerst, auch offline." />
+          <SourceInfo
+            ok={settings.useOpenFoodFacts}
+            title="Open Food / Beauty / Pet Food / Products Facts"
+            text="Produkterkennung über GTIN/EAN (Name, Marke, Größe, Bild). Enthalten keine Preise."
+          />
+          <SourceInfo
+            ok={settings.useOpenFoodFacts}
+            title="Open Prices – Produktdaten"
+            text="Ausweichquelle für die Produkterkennung."
+          />
+          <SourceInfo
+            ok={settings.useOpenPrices}
+            title="Open Prices – Preise"
+            text="Von Nutzern mit Preisschild oder Kassenbon belegte Preise für Lebensmittel, mit Markt und Datum. Abdeckung in Deutschland noch gering."
+          />
+          {RETAILER_APIS.map((r) => (
+            <SourceInfo key={r.id} ok={false} title={`${r.label}-Schnittstelle`} text={r.reason} />
+          ))}
+        </ul>
       </Card>
 
       <Card className="p-4">
@@ -204,5 +230,22 @@ export function SettingsView() {
         <p className="mt-2">Version {__APP_VERSION__}</p>
       </Card>
     </div>
+  );
+}
+
+function SourceInfo({ ok, title, text }: { ok: boolean; title: string; text: string }) {
+  return (
+    <li className="flex gap-3 py-2.5">
+      <span aria-hidden="true" className={'w-4 shrink-0 text-center font-bold ' + (ok ? 'text-accent' : 'text-muted')}>
+        {ok ? '✓' : '×'}
+      </span>
+      <span>
+        <span className="block font-medium text-white/90">
+          {title}
+          <span className="sr-only">{ok ? ' (aktiv)' : ' (nicht aktiv)'}</span>
+        </span>
+        <span className="block text-muted">{text}</span>
+      </span>
+    </li>
   );
 }

@@ -1,4 +1,5 @@
 import type { Cents } from './money';
+import { normalizeBarcode } from './barcode';
 
 export interface CartItem {
   id: string;
@@ -100,8 +101,10 @@ export interface PriceRecord {
   channel: PriceChannel;
   /** Vom Nutzer als Schätzung markiert */
   estimated: boolean;
-  /** Ort/Shop bei externen Quellen, z. B. "Lidl, Berlin" oder "amazon.de" */
+  /** Markt/Filiale bzw. Onlineshop bei externen Quellen, z. B. "REWE City, Berlin" oder "rewe.de" */
   locationLabel?: string;
+  /** Eindeutige Kennung des Marktes in der Quelle (z. B. "osm:node:123", "online:rewe.de") */
+  marketId?: string;
   /** ISO-Ländercode des Ortes (externe Quellen) */
   countryCode?: string;
   /** ID in der externen Quelle (verhindert Duplikate) */
@@ -147,7 +150,7 @@ export function normalizeProduct(p: Partial<Product> & Pick<Product, 'id' | 'nam
   const now = Date.now();
   return {
     ...p,
-    barcode: p.barcode ?? null,
+    barcode: p.barcode ? normalizeBarcode(p.barcode) : null,
     brand: p.brand ?? '',
     category: p.category ?? '',
     size: p.size ?? '',

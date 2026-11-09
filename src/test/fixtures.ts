@@ -57,8 +57,9 @@ export const OPEN_PRICES_COLA = {
   page: 1,
   pages: 1,
   size: 20,
-  total: 5,
+  total: 6,
   items: [
+    { id: 900006, type: 'PRODUCT', price: 1.19, currency: 'EUR', date: '2026-11-05', price_is_discounted: false, duplicate_of: null, location_id: 254, location: loc({ osm_brand: 'Rewe', osm_name: 'REWE City', osm_type: 'NODE', osm_id: 4711 }), proof: { type: 'PRICE_TAG' } },
     { id: 900001, type: 'PRODUCT', price: 0.99, currency: 'EUR', date: '2026-11-01', price_is_discounted: false, duplicate_of: null, location: loc({ osm_brand: 'Lidl', osm_name: 'Lidl' }), proof: { type: 'PRICE_TAG' } },
     { id: 900002, type: 'PRODUCT', price: 1.1, currency: 'EUR', date: '2026-04-06', price_is_discounted: false, duplicate_of: null, location: loc({ osm_brand: 'HiperDino', osm_name: 'HiperDino Express', osm_address_city: 'Los Cristianos', osm_address_country_code: 'ES' }), proof: { type: 'RECEIPT' } },
     { id: 900003, type: 'PRODUCT', price: 1.29, currency: 'EUR', date: '2026-10-20', price_is_discounted: true, duplicate_of: null, location: { type: 'ONLINE', website_url: 'https://www.rewe.de' }, proof: { type: 'RECEIPT' } },
@@ -85,3 +86,15 @@ export function mockFetch(routes: Routes) {
   }) as typeof fetch;
   return { impl, calls };
 }
+
+/** Produktdaten aus Open Prices (Ausweichquelle) */
+export const OP_PRODUCT_COLA = {
+  id: 498612,
+  code: '5449000000996',
+  source: 'off',
+  product_name: 'Coca-Cola Original',
+  image_url: 'https://images.openfoodfacts.org/images/products/544/900/000/0996/front_en.1129.400.jpg',
+  quantity: '330 ml',
+  brands: 'COCA-COLA SERVICES SA/NV',
+};
+export const OP_PRODUCT_EMPTY = { id: 1, code: '4012345678901', source: null, product_name: null };
