@@ -20,7 +20,14 @@ export interface ItemPrefill {
   source?: Product['source'];
   priceCents?: number | null;
   /** Herkunft des vorausgefüllten Preises (für Transparenz) */
-  priceInfo?: { storeId: string | null; recordedAt: number } | null;
+  priceInfo?: {
+    storeId: string | null;
+    recordedAt: number;
+    /** Anzeigename des Marktes/Ortes */
+    label?: string;
+    /** Preis stammt aus einer externen Quelle (z. B. Open Prices) */
+    external?: boolean;
+  } | null;
   imageUrl?: string | null;
   note?: string;
 }
@@ -132,7 +139,7 @@ export function ItemSheet({
     setShowSuggestions(false);
     if (known) {
       setPrice(known.priceCents);
-      setPriceInfo({ storeId: known.storeId, recordedAt: known.recordedAt });
+      setPriceInfo({ storeId: known.storeId, recordedAt: known.recordedAt, external: false });
     }
     priceRef.current?.focus();
   };
@@ -189,7 +196,9 @@ export function ItemSheet({
       }
     }
 
-    if (settings.rememberPrices && (trimmed || snapshot.barcode)) {
+    // Ein unverändert übernommener Fremdpreis (Open Prices) wird NICHT als eigener Preis gespeichert
+    const externalUnchanged = !!priceInfo?.external;
+    if (settings.rememberPrices && (trimmed || snapshot.barcode) && !externalUnchanged) {
       rememberProductPrice({
         productId: snapshot.productId,
         barcode: snapshot.barcode,
@@ -290,8 +299,9 @@ export function ItemSheet({
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-muted">
           <IconClock size={14} />
           <span>
-            Gespeicherter Preis{priceInfo.storeId ? ` bei ${storeName(priceInfo.storeId)}` : ''} vom {formatDate(priceInfo.recordedAt)} (
-            {formatAge(priceInfo.recordedAt)})
+            {priceInfo.external ? 'Öffentlicher Preis (Open Prices)' : 'Gespeicherter Preis'}
+            {priceInfo.label ? ` bei ${priceInfo.label}` : priceInfo.storeId ? ` bei ${storeName(priceInfo.storeId)}` : ''} vom{' '}
+            {formatDate(priceInfo.recordedAt)} ({formatAge(priceInfo.recordedAt)})
           </span>
           {staleInfo && <Badge tone="warn">möglicherweise veraltet</Badge>}
           <span className="w-full text-[12px]">Bitte mit dem Preisschild vergleichen und ggf. anpassen.</span>

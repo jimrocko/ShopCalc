@@ -11,6 +11,7 @@ export interface RememberInput {
   source?: Product['source'];
   storeId: string | null;
   priceCents: number;
+  estimated?: boolean;
 }
 
 /**
@@ -29,12 +30,13 @@ export async function rememberProductPrice(input: RememberInput): Promise<string
   const product = await upsertProduct({
     id: id ?? undefined,
     barcode: input.barcode,
-    name: name || input.barcode || '',
+    // Ohne Namen: Barcode als vorläufiger Name (in „Produkte“ jederzeit änderbar)
+    name: name || (input.barcode ? `Produkt ${input.barcode}` : ''),
     brand: input.brand,
     size: input.size,
     category: input.category,
     source: input.source,
   });
-  if (input.priceCents > 0) await recordPrice(product.id, input.storeId, input.priceCents);
+  if (input.priceCents > 0) await recordPrice(product.id, input.storeId, input.priceCents, Date.now(), { estimated: input.estimated });
   return product.id;
 }

@@ -34,6 +34,18 @@ export default defineConfig({
         globIgnores: ['splash/**'],
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            // Produktbilder der Open-*-Facts-Datenbanken für die Offline-Nutzung zwischenspeichern
+            urlPattern: /^https:\/\/images\.open(food|beauty|petfood|products)facts\.org\//,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'product-images',
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

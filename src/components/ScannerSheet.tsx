@@ -1,36 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Sheet, inputClass } from './ui';
 import { startScanner, ScannerError, cameraAvailable, describeScannerError, type ScannerHandle } from '../scanner/scanner';
-import { findProductByBarcode, listPrices, upsertProduct } from '../db/repo';
-import { lookupBarcode } from '../api/openFoodFacts';
-import { bestKnownPrice } from '../lib/prices';
 import { isSupportedBarcode, normalizeBarcode } from '../lib/barcode';
-import { useApp } from '../state/AppContext';
 import { useOnline } from '../state/useOnline';
-import type { ItemPrefill } from './ItemSheet';
 import { IconBolt } from './icons';
 
 type Phase =
   | { kind: 'scanning' }
   | { kind: 'error'; message: string }
-  | { kind: 'looking-up'; code: string };
+  | { kind: 'detected'; code: string };
 
-/**
- * Barcode scannen → lokale Datenbank → (optional) Open Food Facts → Eingabemaske mit Vorbelegung.
- * Ein Preis wird nur vorgeschlagen, wenn der Nutzer ihn selbst zuvor gespeichert hat.
- */
+/** Barcode scannen (Kamera oder manuelle Eingabe). Die Produkt- und Preissuche übernimmt die Produktkarte. */
 export function ScannerSheet({
   open,
   onClose,
-  onResult,
+  onDetected,
   onManual,
 }: {
   open: boolean;
   onClose: () => void;
-  onResult: (prefill: ItemPrefill) => void;
+  onDetected: (barcode: string) => void;
   onManual: () => void;
 }) {
-  const { state, bumpProducts } = useApp();
   const online = useOnline();
   const videoRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<ScannerHandle | null>(null);
@@ -46,68 +37,14 @@ export function ScannerSheet({
   }, []);
 
   const resolveCode = useCallback(
-    async (raw: string) => {
+    (raw: string) => {
       const code = normalizeBarcode(raw);
       stop();
       if (navigator.vibrate) navigator.vibrate(40);
-      setPhase({ kind: 'looking-up', code });
-
-      const storeId = state.settings.currentStoreId;
-      try {
-        const local = await findProductByBarcode(code);
-        if (local) {
-          const known = bestKnownPrice(await listPrices(local.id), storeId);
-          onResult({
-            name: local.name,
-            barcode: code,
-            productId: local.id,
-            brand: local.brand,
-            size: local.size,
-            category: local.category,
-            source: local.source,
-            priceCents: known?.priceCents ?? null,
-            priceInfo: known ? { storeId: known.storeId, recordedAt: known.recordedAt } : null,
-            note: known ? undefined : 'Produkt bekannt, aber noch kein Preis gespeichert. Bitte Preis eingeben.',
-          });
-          return;
-        }
-      } catch (e) {
-        console.error(e);
-      }
-
-      if (!state.settings.useOpenFoodFacts) {
-        onResult({ barcode: code, note: 'Unbekanntes Produkt – bitte Name (optional) und Preis eingeben.' });
-        return;
-      }
-
-      const res = await lookupBarcode(code);
-      if (res.status === 'found') {
-        // Stammdaten lokal merken, damit sie künftig offline verfügbar sind
-        try {
-          const saved = await upsertProduct({ ...res.product, barcode: code, source: 'openfoodfacts' });
-          bumpProducts();
-          onResult({
-            ...res.product,
-            productId: saved.id,
-            barcode: code,
-            source: 'openfoodfacts',
-            priceCents: null,
-            note: 'Produktdaten von Open Food Facts. Ein Barcode enthält keinen Preis – bitte Preis vom Preisschild eingeben.',
-          });
-        } catch {
-          onResult({ ...res.product, barcode: code, source: 'openfoodfacts', priceCents: null });
-        }
-        return;
-      }
-      const note =
-        res.status === 'offline'
-          ? 'Offline – Produktdaten können nicht abgerufen werden. Bitte Name (optional) und Preis eingeben.'
-          : res.status === 'not-found'
-            ? 'Produkt nicht gefunden. Bitte Name (optional) und Preis eingeben.'
-            : 'Produktdaten konnten nicht geladen werden. Bitte Name (optional) und Preis eingeben.';
-      onResult({ barcode: code, note });
+      setPhase({ kind: 'detected', code });
+      onDetected(code);
     },
-    [stop, state.settings.currentStoreId, state.settings.useOpenFoodFacts, onResult, bumpProducts],
+    [stop, onDetected],
   );
 
   useEffect(() => {
@@ -122,7 +59,7 @@ export function ScannerSheet({
     let cancelled = false;
     const video = videoRef.current;
     if (!video) return;
-    startScanner(video, (code) => void resolveCode(code))
+    startScanner(video, (code) => resolveCode(code))
       .then((h) => {
         if (cancelled) h.stop();
         else {
@@ -153,10 +90,10 @@ export function ScannerSheet({
             </div>
           </div>
         )}
-        {phase.kind === 'looking-up' && (
+        {phase.kind === 'detected' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-accent" />
-            <div className="text-[15px]">Suche Produkt …</div>
+            <div className="text-[15px]">Barcode erkannt</div>
             <div className="text-[13px] tabular-nums text-muted">EAN {phase.code}</div>
           </div>
         )}
@@ -188,7 +125,7 @@ export function ScannerSheet({
 
       <p className="mt-3 text-center text-[13px] text-muted">
         EAN-8 / EAN-13 in den Rahmen halten. Die Erkennung läuft lokal auf dem Gerät.
-        {!online && ' Offline: Nur lokal gespeicherte Produkte werden erkannt.'}
+        {!online && ' Offline: Es werden nur lokal gespeicherte Produkte und Preise angezeigt.'}
       </p>
 
       <div className="mt-5">
@@ -203,10 +140,10 @@ export function ScannerSheet({
             maxLength={13}
             onChange={(e) => setManualCode(e.target.value.replace(/\D/g, ''))}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && manualValid) void resolveCode(manualCode);
+              if (e.key === 'Enter' && manualValid) resolveCode(manualCode);
             }}
           />
-          <Button variant="primary" disabled={!manualValid} onClick={() => void resolveCode(manualCode)}>
+          <Button variant="primary" disabled={!manualValid} onClick={() => resolveCode(manualCode)}>
             Suchen
           </Button>
         </div>

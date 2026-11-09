@@ -8,6 +8,8 @@ import {
   type Session,
   type Settings,
   type Store,
+  normalizePrice,
+  normalizeProduct,
 } from '../lib/types';
 
 interface ShopCalcDB extends DBSchema {
@@ -27,7 +29,7 @@ interface ShopCalcDB extends DBSchema {
 }
 
 export const DB_NAME = 'shopcalc';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<ShopCalcDB>> | null = null;
 
@@ -48,6 +50,22 @@ export function getDB(): Promise<IDBPDatabase<ShopCalcDB>> {
           DEFAULT_STORES.forEach((s, i) => void stores.put({ ...s, builtIn: true, createdAt: now + i }));
           void tx.objectStore('settings').put(DEFAULT_SETTINGS);
           void tx.objectStore('session').put(emptySession(now));
+        }
+        if (oldVersion >= 1 && oldVersion < 2) {
+          // v2: Preise erhalten Quelle/Kanal, Produkte Produktart/Bild.
+          // Vorhandene Preise stammen alle aus eigenen Eingaben im Laden.
+          void (async () => {
+            let cursor = await tx.objectStore('prices').openCursor();
+            while (cursor) {
+              await cursor.update(normalizePrice(cursor.value));
+              cursor = await cursor.continue();
+            }
+            let pc = await tx.objectStore('products').openCursor();
+            while (pc) {
+              await pc.update(normalizeProduct(pc.value));
+              pc = await pc.continue();
+            }
+          })();
         }
       },
       blocking() {
